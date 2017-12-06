@@ -1,4 +1,4 @@
-# ECEN-449 Lab Repository
+# ECEN 449 Lab Repository
 
 This repository contains my work from ECEN 449 lab. You can find the lab requirements as well as my solutions here. 
 
