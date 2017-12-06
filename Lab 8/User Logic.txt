@@ -1,0 +1,109 @@
+	// Add user logic here
+	reg [31:0] clockCount;
+	reg clock;
+	assign reset = ~S_AXI_ARESETN; //S_AXI_ARESETN is active low
+	assign mainClock = S_AXI_ACLK;
+	/* Dividing clock by 1,000 to manage counter better */
+	always@(posedge mainClock) begin
+		if (clockCount == 1000 && ~reset) begin
+			clock <= 1;
+			clockCount <= 0;
+		end
+		
+		else if (reset) begin
+			clockCount <= 0;
+			clock <= 0;
+		end
+		
+		else begin
+			clockCount <= clockCount + 1;
+			clock <= 0;
+		end
+	end
+	
+	reg oldSignal; /* Old Signal used for edge detection */
+	reg [31:0] counter; /* Counter to count time of ~IR_signal */
+	reg State;
+	reg [11:0] demodulatedMessage;
+	reg startSignal;
+	reg [31:0] bitCount;
+	reg keepCounting;
+	assign IR_interrupt = slv_reg2[0];
+	
+	always@(posedge clock) begin
+	
+		if (slv_reg2[31]) begin //if the C code wants to reset IR_interrupt
+		  //reset slv_reg2[31:16]
+		  slv_reg2[15:0] <= 0;
+		  clr_int_rst <= 1'b1;
+		end
+		else if (clr_int_rst) begin
+		  clr_int_rst <= 1'b0;
+		end
+		
+		else begin
+		oldSignal <= IR_signal;
+		if (oldSignal && ~IR_signal) begin
+			/* We start counting on the negative edge of the clock */
+			keepCounting <= 1'b1;
+		end
+		
+		else if (~oldSignal && IR_signal) begin //if we just resolve a bit 
+			/* We stop counting when we reach the positive edge again */
+			bitCount <= bitCount + 1; //increament bitCount (we just read a bit)
+			keepCounting <= 1'b0; //stop counting
+			counter <= 0; //reset counter
+			//store the bit we just read into current message
+			
+			if (startSignal && bitCount >= 12) begin //if we have received a full message
+				slv_reg0 <= demodulatedMessage;
+				slv_reg1 <= slv_reg1 + 1;
+				slv_reg2[0] <= 1; //set IR_interrupt to 1
+				bitCount <= 0;
+				startSignal <= 0;
+			end
+			
+			else if (startSignal && bitCount < 12 && bitCount != 0) begin //in order to prevent having to use blocking assignments
+				demodulatedMessage[11 - (bitCount - 1)] <= State;
+			end
+		end
+		
+		/* IR Signal is Active Low */
+		if (keepCounting && ~IR_signal) begin
+			counter <= counter + 1;
+			/* With a start signal time of 2.4 ms, IR_signal
+				shoud be low for approximately 180 cycles 
+				Zero Signal = 0.6 ms = 45 cycles
+				One Signal = 1.2 = 90 cycles 
+				I'm using the halfway point between 0 and 1
+				to create a fine line between them and resolving
+				an appropriate signal (.9 ms = 68 cycles) 
+				Halfway point between Start and 1 = 1.8 ms = 135 cycles */
+				if (counter >= 20 && counter <= 68) begin
+					State <=0;
+				end
+				
+				else if (counter >= 69 && counter <= 134) begin
+					State <= 1;
+				end
+				
+				else if (counter >= 135 && counter <= 250) begin
+						startSignal <= 1;
+						/* Initialize bit count to 0 */
+						bitCount <= 0;
+				end
+				
+				else begin
+					/* Just to be safe (it's probably impossible
+						to get to here anyway) */
+					State <= 0;
+				end
+			
+		end
+		end
+		
+		
+	end
+	
+	
+	// User logic ends
